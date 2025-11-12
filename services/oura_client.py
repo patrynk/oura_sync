@@ -3,8 +3,6 @@ import time
 from datetime import date, datetime
 from typing import Any, Optional
 
-import requests
-
 from config import settings
 from services.oauth import OuraOAuth
 from utils import logger
@@ -12,61 +10,88 @@ from utils import logger
 
 class OuraClient:
     """Client for interacting with Oura API."""
-    
-    def __init__(self, user_id: str):
+
+    def __init__(self, user_id: str, use_oauth_session: bool = True):
+        """
+        Initialize Oura API client.
+
+        Args:
+            user_id: User identifier
+            use_oauth_session: If True, use OAuth2Session for automatic token refresh.
+                              If False, use manual token management (legacy mode).
+        """
         self.user_id = user_id
         self.base_url = settings.oura_api_base_url
         self.oauth = OuraOAuth()
-        self._session = requests.Session()
-        
+        self.use_oauth_session = use_oauth_session
+
+        if use_oauth_session:
+            # Create OAuth2Session that handles token refresh automatically
+            self._session = self.oauth.create_authenticated_session(user_id)
+            if not self._session:
+                raise Exception(f"No valid authentication for user {user_id}")
+        else:
+            # Legacy: manual token management
+            import requests
+            self._session = requests.Session()
+
     def _get_headers(self) -> dict:
-        """Get authorization headers."""
+        """
+        Get authorization headers.
+        Only used in legacy mode (use_oauth_session=False).
+        """
         access_token = self.oauth.get_access_token(self.user_id)
         if not access_token:
             raise Exception(f"No valid access token for user {self.user_id}")
-        
+
         return {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
         }
     
     def _make_request(
-        self, 
-        endpoint: str, 
+        self,
+        endpoint: str,
         params: Optional[dict] = None,
         max_retries: int = 3
     ) -> dict:
         """
         Make API request with retry logic.
-        
+
         Args:
             endpoint: API endpoint path
             params: Query parameters
             max_retries: Maximum number of retries
-            
+
         Returns:
             Response JSON data
         """
         url = f"{self.base_url}{endpoint}"
-        headers = self._get_headers()
-        
+
+        # OAuth2Session handles auth automatically, manual session needs headers
+        if self.use_oauth_session:
+            headers = {"Content-Type": "application/json"}
+        else:
+            headers = self._get_headers()
+
         for attempt in range(max_retries):
             try:
                 response = self._session.get(url, headers=headers, params=params)
-                
+
                 # Handle rate limiting
                 if response.status_code == 429:
                     retry_after = int(response.headers.get("Retry-After", 60))
                     logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
                     time.sleep(retry_after)
                     continue
-                
+
                 response.raise_for_status()
                 return response.json()
-                
-            except requests.exceptions.HTTPError as e:
-                if response.status_code == 401:
-                    # Try to refresh token
+
+            except Exception as e:
+                # OAuth2Session automatically handles 401 via token refresh
+                # For legacy mode, handle manually
+                if not self.use_oauth_session and hasattr(e, 'response') and e.response.status_code == 401:
                     logger.info("Token invalid, attempting refresh...")
                     token = self.oauth.get_token(self.user_id)
                     if token:
@@ -74,15 +99,15 @@ class OuraClient:
                         self.oauth.save_token(self.user_id, new_token_data)
                         continue
                     raise
-                
+
                 if attempt == max_retries - 1:
                     logger.error(f"Request failed after {max_retries} attempts: {e}")
                     raise
-                
+
                 wait_time = 2 ** attempt  # Exponential backoff
                 logger.warning(f"Request failed, retrying in {wait_time}s... ({attempt + 1}/{max_retries})")
                 time.sleep(wait_time)
-        
+
         raise Exception(f"Failed to complete request after {max_retries} attempts")
     
     def _fetch_paginated_data(

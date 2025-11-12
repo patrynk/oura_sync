@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from config import settings
 from models.base import Base
-from utils import logger
+from utils.logger import logger
 
 
 # Create engine
@@ -103,7 +103,6 @@ def init_database():
         from models.daily_sleep import DailySleep
         from models.daily_spo2 import DailySpo2
         from models.daily_stress import DailyStress
-        from models.enhanced_tag import EnhancedTag
         from models.heart_rate import HeartRate
         from models.personal_info import PersonalInfo
         from models.rest_mode_period import RestModePeriod
@@ -112,7 +111,7 @@ def init_database():
         from models.sleep import Sleep
         from models.sleep_time import SleepTime
         from models.tag import Tag
-        from models.vo2_max import VO2Max
+        from models.vo2_max import Vo2Max
         from models.workout import Workout
 
         # Create all tables
@@ -142,7 +141,6 @@ def drop_all_tables():
         from models.daily_sleep import DailySleep
         from models.daily_spo2 import DailySpo2
         from models.daily_stress import DailyStress
-        from models.enhanced_tag import EnhancedTag
         from models.heart_rate import HeartRate
         from models.personal_info import PersonalInfo
         from models.rest_mode_period import RestModePeriod
@@ -151,7 +149,7 @@ def drop_all_tables():
         from models.sleep import Sleep
         from models.sleep_time import SleepTime
         from models.tag import Tag
-        from models.vo2_max import VO2Max
+        from models.vo2_max import Vo2Max
         from models.workout import Workout
 
         # Drop all tables

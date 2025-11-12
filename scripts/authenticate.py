@@ -29,18 +29,18 @@ def main():
     
     # Start OAuth flow
     oauth = OuraOAuth()
-    
+
     try:
-        # Get authorization code
-        auth_code = oauth.start_auth_flow()
-        
+        # Get authorization code and state
+        auth_code, state = oauth.start_auth_flow()
+
         if not auth_code:
             print("\n✗ No authorization code provided. Exiting.")
             return
-        
-        # Exchange code for tokens
+
+        # Exchange code for tokens (with state verification for CSRF protection)
         print("\nExchanging authorization code for tokens...")
-        token_data = oauth.exchange_code_for_token(auth_code)
+        token_data = oauth.exchange_code_for_token(auth_code, state)
         
         # Get user ID from personal info endpoint
         print("Fetching user information...")
