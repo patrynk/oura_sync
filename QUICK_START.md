@@ -170,7 +170,8 @@ crontab -e
 
 ## Next Steps - Expanding the Models
 
-The current models are stubs that store raw JSON data. To fully utilize the data, you should expand them based on the API schema. For example:
+The current models are stubs that store raw JSON data. 
+For example:
 
 ### Expanding DailyActivity Model
 
@@ -266,20 +267,3 @@ oura_sync/
 ├── logs/             # Application logs
 └── requirements.txt
 ```
-
-## Support
-
-- Oura API Docs: https://cloud.ouraring.com/v2/docs
-- OAuth Apps: https://cloud.ouraring.com/oauth/applications
-- API Support: api-support@ouraring.com
-
-## Next Steps
-
-1. ✅ Set up your environment variables
-2. ✅ Run initial authentication
-3. ✅ Sync your data
-4. 📝 Expand the database models for your specific needs
-5. 📝 Build your analysis or visualization tools
-6. 📝 Set up automated daily syncs
-7. 📝 (Optional) Implement webhooks for real-time updates
-
