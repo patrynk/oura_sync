@@ -1,7 +1,8 @@
 """OAuth2 authentication service for Oura API."""
+import os
 import secrets
 import webbrowser
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from requests_oauthlib import OAuth2Session
@@ -10,6 +11,15 @@ from config import settings
 from models.auth import OAuthToken
 from utils import logger
 from utils.database import get_db
+
+# Allow OAuth over HTTP for local development (localhost redirect URIs)
+# This is safe because the redirect is to localhost only
+if settings.oura_redirect_uri.startswith('http://localhost') or settings.oura_redirect_uri.startswith('http://127.0.0.1'):
+    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+
+# Disable strict scope checking - Oura returns scopes with 'extapi:' prefix
+# but we request them without prefix (e.g., 'daily' vs 'extapi:daily')
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
 
 class OuraOAuth:
@@ -183,9 +193,9 @@ class OuraOAuth:
             token_data: Token response from Oura API
         """
         with get_db() as db:
-            # Calculate token expiration
+            # Calculate token expiration (use UTC timezone-aware datetime)
             expires_in = token_data.get("expires_in", 86400)  # Default 24 hours
-            expires_at = datetime.now() + timedelta(seconds=expires_in)
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
             # Check if token exists
             existing_token = db.query(OAuthToken).filter(
@@ -269,17 +279,44 @@ class OuraOAuth:
         Returns:
             OAuth2Session configured with user's token, or None if not authenticated
         """
-        token_obj = self.get_token(user_id)
-        if not token_obj:
-            return None
+        # Get token and extract all needed attributes while DB session is active
+        with get_db() as db:
+            token_obj = db.query(OAuthToken).filter(
+                OAuthToken.user_id == user_id
+            ).first()
 
-        # Convert OAuthToken to dict format expected by OAuth2Session
-        token_dict = {
-            'access_token': token_obj.access_token,
-            'refresh_token': token_obj.refresh_token,
-            'token_type': token_obj.token_type,
-            'expires_in': int((token_obj.expires_at - datetime.now()).total_seconds()),
-        }
+            if not token_obj:
+                return None
+
+            # Check if expired and refresh if needed
+            if token_obj.is_expired():
+                logger.info(f"Token expired for user {user_id}, refreshing...")
+                try:
+                    new_token_data = self.refresh_access_token(token_obj.refresh_token)
+                    self.save_token(user_id, new_token_data)
+                    # Re-query to get fresh token
+                    token_obj = db.query(OAuthToken).filter(
+                        OAuthToken.user_id == user_id
+                    ).first()
+                except Exception as e:
+                    logger.error(f"Failed to refresh token for user {user_id}: {e}")
+                    return None
+
+            # Extract all attributes while session is still active
+            # Ensure both datetimes are timezone-aware for comparison
+            now = datetime.now(timezone.utc)
+            expires_at = token_obj.expires_at
+
+            # If expires_at is naive, make it timezone-aware (assume UTC)
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+            token_dict = {
+                'access_token': token_obj.access_token,
+                'refresh_token': token_obj.refresh_token,
+                'token_type': token_obj.token_type,
+                'expires_in': int((expires_at - now).total_seconds()),
+            }
 
         # Create session that will auto-refresh and save via callback
         def token_saver(token):

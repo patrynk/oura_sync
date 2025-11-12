@@ -41,12 +41,13 @@ def main():
         # Exchange code for tokens (with state verification for CSRF protection)
         print("\nExchanging authorization code for tokens...")
         token_data = oauth.exchange_code_for_token(auth_code, state)
-        
+
+        # Save token temporarily with "temp" user_id
+        oauth.save_token("temp", token_data)
+
         # Get user ID from personal info endpoint
         print("Fetching user information...")
         client = OuraClient("temp")
-        client.oauth.save_token("temp", token_data)
-        
         personal_info = client.get_personal_info()
         user_id = personal_info.get("id")
         
