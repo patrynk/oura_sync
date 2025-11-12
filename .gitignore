@@ -1,3 +1,5 @@
 openapi-1.27.json
 .env
 __pycache__
+data/
+logs/
