@@ -9,10 +9,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from services.oura_client import OuraClient
-from services.oauth import OuraOAuth
 from models.auth import OAuthToken
 from models.personal_info import PersonalInfo
+from models.daily_activity import DailyActivity
+from models.daily_readiness import DailyReadiness
+from models.daily_sleep import DailySleep
+from models.daily_spo2 import DailySpo2
+from models.daily_stress import DailyStress
 from utils import logger, get_db
+from utils.mappers import MAPPERS
 
 
 def get_user_id() -> str:
@@ -69,32 +74,72 @@ def sync_daily_data(client: OuraClient, user_id: str, start_date: str, end_date:
         "daily_resilience": client.get_daily_resilience,
         "daily_cardiovascular_age": client.get_daily_cardiovascular_age,
     }
-    
+
+    # Model map for querying existing records
+    model_map = {
+        "daily_activity": DailyActivity,
+        "daily_sleep": DailySleep,
+        "daily_readiness": DailyReadiness,
+        "daily_spo2": DailySpo2,
+        "daily_stress": DailyStress,
+    }
+
     for data_type in data_types:
         if data_type not in methods_map:
             continue
-        
+
         logger.info(f"Syncing {data_type}...")
         try:
             method = methods_map[data_type]
             data_list = method(start_date, end_date)
-            
-            # For now, just log the data
-            # In production, you'd save to database
+
             logger.info(f"Retrieved {len(data_list)} {data_type} records")
-            
+
+            # Save to database if mapper exists
+            if data_type in MAPPERS:
+                mapper = MAPPERS[data_type]
+                model_class = model_map[data_type]
+
+                with get_db() as db:
+                    saved_count = 0
+                    updated_count = 0
+
+                    for record_data in data_list:
+                        # Check if record already exists
+                        existing = db.query(model_class).filter(
+                            model_class.id == record_data["id"]
+                        ).first()
+
+                        if existing:
+                            # Update existing record
+                            mapped_data = mapper(record_data, user_id)
+                            for key, value in mapped_data.__dict__.items():
+                                if not key.startswith("_"):
+                                    setattr(existing, key, value)
+                            updated_count += 1
+                        else:
+                            # Create new record
+                            new_record = mapper(record_data, user_id)
+                            db.add(new_record)
+                            saved_count += 1
+
+                    db.commit()
+                    logger.info(f"Saved {saved_count} new records, updated {updated_count} records to database")
+
             # Save to JSON file for reference
             output_dir = Path(__file__).parent.parent / "data" / data_type
             output_dir.mkdir(parents=True, exist_ok=True)
-            
+
             output_file = output_dir / f"{start_date}_to_{end_date}.json"
             with open(output_file, "w") as f:
                 json.dump(data_list, f, indent=2, default=str)
-            
+
             logger.info(f"Saved to {output_file}")
-            
+
         except Exception as e:
             logger.error(f"Failed to sync {data_type}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
 
 def main():
